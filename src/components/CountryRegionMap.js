@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet, Dimensions, Text } from 'react-native';
 import Svg, { Path, G } from 'react-native-svg';
-import { geoMercator, geoAlbersUsa, geoPath } from 'd3-geo';
+import { geoMercator, geoAlbersUsa, geoPath, geoContains } from 'd3-geo';
 import { feature } from 'topojson-client';
+import { TapGestureHandler, State } from 'react-native-gesture-handler';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const MAP_HEIGHT = 380;
@@ -17,8 +18,8 @@ function getRegionName(feature, index) {
     p.name ||
     p.NAME ||
     p.NAME_1 ||
-    p.shapeName || // geoBoundaries
-    p.nom ||       // French
+    p.shapeName ||
+    p.nom ||
     p.NAME_EN ||
     p.name_en ||
     `region-${index}`
@@ -27,6 +28,8 @@ function getRegionName(feature, index) {
 
 /**
  * Детальна карта країни з регіонами.
+ * Обробка тапів через TapGestureHandler + geoContains hit-testing
+ * (працює і на iOS, і на Android).
  */
 export default function CountryRegionMap({ config, visitedRegions, onRegionPress, countryId }) {
   const [features, setFeatures] = useState(null);
@@ -38,9 +41,6 @@ export default function CountryRegionMap({ config, visitedRegions, onRegionPress
 
     const loadData = async () => {
       try {
-        // Для geoBoundaries потрібен 2-кроковий процес:
-        // 1) отримати метадані (де є поле simplifiedGeometryGeoJSON)
-        // 2) завантажити сам geojson за цим посиланням
         if (config.isGeoboundaries) {
           const metaRes = await fetch(config.url);
           if (!metaRes.ok) throw new Error(`HTTP ${metaRes.status} (meta)`);
@@ -59,7 +59,6 @@ export default function CountryRegionMap({ config, visitedRegions, onRegionPress
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
-        // TopoJSON — розпаковуємо
         if (config.topojsonObject) {
           const obj = data.objects?.[config.topojsonObject];
           if (!obj) throw new Error(`TopoJSON object "${config.topojsonObject}" not found`);
@@ -77,24 +76,24 @@ export default function CountryRegionMap({ config, visitedRegions, onRegionPress
     loadData();
   }, [config.url, config.topojsonObject, config.isGeoboundaries]);
 
-  const { pathGen, width, height } = useMemo(() => {
+  const { pathGen, projection, width, height } = useMemo(() => {
     const w = SCREEN_W - 20;
     const h = MAP_HEIGHT;
 
-    // Для США — спеціальна проекція Albers USA
+    // Для США - спеціальна проекція Albers USA
     if (countryId === '840') {
-      const projection = geoAlbersUsa()
+      const proj = geoAlbersUsa()
         .scale(w * 1.2)
         .translate([w / 2, h / 2]);
-      return { pathGen: geoPath(projection), width: w, height: h };
+      return { pathGen: geoPath(proj), projection: proj, width: w, height: h };
     }
 
     const adjustedScale = (config.scale * w) / 800;
-    const projection = geoMercator()
+    const proj = geoMercator()
       .center(config.center)
       .scale(adjustedScale)
       .translate([w / 2, h / 2]);
-    return { pathGen: geoPath(projection), width: w, height: h };
+    return { pathGen: geoPath(proj), projection: proj, width: w, height: h };
   }, [config, countryId]);
 
   const paths = useMemo(() => {
@@ -104,10 +103,29 @@ export default function CountryRegionMap({ config, visitedRegions, onRegionPress
         const name = getRegionName(f, i);
         const d = pathGen(f);
         if (!d) return null;
-        return { name, d, key: `${name}-${i}` };
+        return { name, d, key: `${name}-${i}`, feature: f };
       })
       .filter(Boolean);
   }, [features, pathGen]);
+
+  // Hit-test при тапі: знаходимо регіон під пальцем
+  const onTap = (e) => {
+    if (e.nativeEvent.state !== State.ACTIVE) return;
+    if (!features) return;
+
+    const x = e.nativeEvent.x;
+    const y = e.nativeEvent.y;
+
+    const coords = projection.invert([x, y]);
+    if (!coords) return;
+
+    for (const p of paths) {
+      if (geoContains(p.feature, coords)) {
+        onRegionPress?.(p.name);
+        return;
+      }
+    }
+  };
 
   if (error) {
     return (
@@ -137,23 +155,26 @@ export default function CountryRegionMap({ config, visitedRegions, onRegionPress
 
   return (
     <View style={styles.container}>
-      <Svg width={width} height={height}>
-        <G>
-          {paths.map((p) => {
-            const isVisited = visitedRegions.includes(p.name);
-            return (
-              <Path
-                key={p.key}
-                d={p.d}
-                fill={isVisited ? '#69e36a' : '#d6d6d6'}
-                stroke="#fff"
-                strokeWidth={0.8}
-                onPress={() => onRegionPress?.(p.name)}
-              />
-            );
-          })}
-        </G>
-      </Svg>
+      <TapGestureHandler onHandlerStateChange={onTap} maxDurationMs={350} maxDeltaX={10} maxDeltaY={10}>
+        <View style={{ width, height }}>
+          <Svg width={width} height={height} pointerEvents="none">
+            <G>
+              {paths.map((p) => {
+                const isVisited = visitedRegions.includes(p.name);
+                return (
+                  <Path
+                    key={p.key}
+                    d={p.d}
+                    fill={isVisited ? '#69e36a' : '#d6d6d6'}
+                    stroke="#fff"
+                    strokeWidth={0.8}
+                  />
+                );
+              })}
+            </G>
+          </Svg>
+        </View>
+      </TapGestureHandler>
     </View>
   );
 }

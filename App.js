@@ -3,7 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Text, View } from 'react-native';
+import { Text, View, LogBox, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { TravelProvider, useTravel } from './src/context/TravelContext';
@@ -13,6 +13,14 @@ import AchievementsScreen from './src/screens/AchievementsScreen';
 import CountryDetailScreen from './src/screens/CountryDetailScreen';
 import AchievementToast from './src/components/AchievementToast';
 import { requestNotificationPermissions } from './src/utils/notifications';
+
+// Приглушуємо відомі попередження, які не впливають на роботу:
+// - Push-сповіщення в Expo Go на Android (SDK 53+) - ми використовуємо локальні
+// - Варнінг про ключі у react-native-svg G (баг бібліотеки)
+LogBox.ignoreLogs([
+  'expo-notifications: Android Push notifications',
+  'Each child in a list should have a unique "key" prop',
+]);
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -38,10 +46,6 @@ function tabIcon(emoji) {
   return () => <Text style={{ fontSize: 22 }}>{emoji}</Text>;
 }
 
-/**
- * Обгортка над основним UI, щоб мати доступ до context
- * для показу toast-сповіщень поверх всього.
- */
 function AppContent() {
   const { pendingToast, hideToast } = useTravel();
 
@@ -79,7 +83,6 @@ function AppContent() {
 }
 
 export default function App() {
-  // Запитуємо дозвіл на сповіщення один раз при старті
   useEffect(() => {
     requestNotificationPermissions();
   }, []);

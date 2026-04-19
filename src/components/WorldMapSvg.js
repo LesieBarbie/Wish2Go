@@ -9,12 +9,13 @@ import {
   Animated,
 } from 'react-native';
 import Svg, { Path, G } from 'react-native-svg';
-import { geoMercator, geoPath } from 'd3-geo';
+import { geoMercator, geoPath, geoContains } from 'd3-geo';
 import { feature } from 'topojson-client';
 import {
   GestureHandlerRootView,
   PanGestureHandler,
   PinchGestureHandler,
+  TapGestureHandler,
   State,
 } from 'react-native-gesture-handler';
 
@@ -23,20 +24,9 @@ const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
 const { width: SCREEN_W } = Dimensions.get('window');
 const MAP_HEIGHT = 420;
 
-/**
- * Мемоизированная страна — не перерисовывается пока не меняется fill.
- * Критично для производительности: при жестах перерисовывается только
- * внешний transform, а сами <Path> React трогать не будет.
- */
 const CountryPath = memo(
-  ({ d, fill, onPressId, id, name }) => (
-    <Path
-      d={d}
-      fill={fill}
-      stroke="#999"
-      strokeWidth={0.5}
-      onPress={() => onPressId(id, name)}
-    />
+  ({ d, fill }) => (
+    <Path d={d} fill={fill} stroke="#999" strokeWidth={0.5} />
   ),
   (prev, next) => prev.fill === next.fill && prev.d === next.d
 );
@@ -45,19 +35,17 @@ function WorldMapSvgInner({ getFill, onCountryPress }) {
   const [features, setFeatures] = useState(null);
   const [error, setError] = useState(null);
 
-  // Accumulated values (стабильная часть transform)
   const [baseTx, setBaseTx] = useState(0);
   const [baseTy, setBaseTy] = useState(0);
   const [baseScale, setBaseScale] = useState(1);
 
-  // Animated values для активного жеста
   const panX = useRef(new Animated.Value(0)).current;
   const panY = useRef(new Animated.Value(0)).current;
   const pinch = useRef(new Animated.Value(1)).current;
 
-  // Рефы для simultaneousHandlers
   const panRef = useRef();
   const pinchRef = useRef();
+  const tapRef = useRef();
 
   useEffect(() => {
     fetch(GEO_URL)
@@ -72,27 +60,55 @@ function WorldMapSvgInner({ getFill, onCountryPress }) {
       });
   }, []);
 
-  const { paths, width, height } = useMemo(() => {
+  const { paths, projection, width, height } = useMemo(() => {
     const w = SCREEN_W;
     const h = MAP_HEIGHT;
-    const projection = geoMercator()
+    const proj = geoMercator()
       .scale(w / 6.3)
       .translate([w / 2, h / 1.5]);
-    const pathGen = geoPath(projection);
+    const pathGen = geoPath(proj);
 
-    if (!features) return { paths: [], width: w, height: h };
+    if (!features) return { paths: [], projection: proj, width: w, height: h };
     const result = features
-      .map((f) => {
+      .map((f, idx) => {
         const d = pathGen(f);
         if (!d) return null;
-        return { id: f.id, name: f.properties?.name || '', d };
+        // Гарантовано унікальний ключ: index + id
+        const uniqueKey = `c-${idx}-${f.id ?? 'x'}`;
+        return {
+          key: uniqueKey,
+          id: f.id,
+          name: f.properties?.name || '',
+          d,
+          feature: f,
+        };
       })
       .filter(Boolean);
 
-    return { paths: result, width: w, height: h };
+    return { paths: result, projection: proj, width: w, height: h };
   }, [features]);
 
-  // PAN handlers
+  const onTapEvent = (e) => {
+    if (e.nativeEvent.state !== State.ACTIVE) return;
+    if (!features) return;
+
+    const tapX = e.nativeEvent.x;
+    const tapY = e.nativeEvent.y;
+
+    const svgX = (tapX - baseTx) / baseScale;
+    const svgY = (tapY - baseTy) / baseScale;
+
+    const coords = projection.invert([svgX, svgY]);
+    if (!coords) return;
+
+    for (const p of paths) {
+      if (geoContains(p.feature, coords)) {
+        onCountryPress?.(p.id, p.name);
+        return;
+      }
+    }
+  };
+
   const onPanEvent = Animated.event(
     [{ nativeEvent: { translationX: panX, translationY: panY } }],
     { useNativeDriver: true }
@@ -107,7 +123,6 @@ function WorldMapSvgInner({ getFill, onCountryPress }) {
     }
   };
 
-  // PINCH handlers
   const onPinchEvent = Animated.event(
     [{ nativeEvent: { scale: pinch } }],
     { useNativeDriver: true }
@@ -126,7 +141,6 @@ function WorldMapSvgInner({ getFill, onCountryPress }) {
     setBaseScale(1);
   };
 
-  // Объединяем накопленное значение с активным жестом
   const translateXCombined = Animated.add(panX, baseTx);
   const translateYCombined = Animated.add(panY, baseTy);
   const scaleCombined = Animated.multiply(pinch, baseScale);
@@ -134,7 +148,7 @@ function WorldMapSvgInner({ getFill, onCountryPress }) {
   if (error) {
     return (
       <View style={[styles.wrapper, styles.center]}>
-        <Text style={{ color: '#c62828' }}>Ошибка загрузки карты</Text>
+        <Text style={{ color: '#c62828' }}>Помилка завантаження карти</Text>
         <Text style={{ color: '#999', fontSize: 12 }}>{error}</Text>
       </View>
     );
@@ -144,58 +158,71 @@ function WorldMapSvgInner({ getFill, onCountryPress }) {
     return (
       <View style={[styles.wrapper, styles.center]}>
         <ActivityIndicator size="large" />
-        <Text style={{ marginTop: 10, color: '#666' }}>Загружаю карту мира...</Text>
+        <Text style={{ marginTop: 10, color: '#666' }}>Завантажую карту світу...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.wrapper}>
-      <PanGestureHandler
-        ref={panRef}
-        simultaneousHandlers={pinchRef}
-        minPointers={1}
-        maxPointers={2}
-        onGestureEvent={onPanEvent}
-        onHandlerStateChange={onPanStateChange}
+      <TapGestureHandler
+        ref={tapRef}
+        onHandlerStateChange={onTapEvent}
+        waitFor={[panRef, pinchRef]}
+        maxDurationMs={350}
+        maxDeltaX={10}
+        maxDeltaY={10}
       >
         <Animated.View style={styles.container}>
-          <PinchGestureHandler
-            ref={pinchRef}
-            simultaneousHandlers={panRef}
-            onGestureEvent={onPinchEvent}
-            onHandlerStateChange={onPinchStateChange}
+          <PanGestureHandler
+            ref={panRef}
+            simultaneousHandlers={pinchRef}
+            minPointers={1}
+            maxPointers={2}
+            onGestureEvent={onPanEvent}
+            onHandlerStateChange={onPanStateChange}
           >
-            <Animated.View
-              style={[
-                styles.container,
-                {
-                  transform: [
-                    { translateX: translateXCombined },
-                    { translateY: translateYCombined },
-                    { scale: scaleCombined },
-                  ],
-                },
-              ]}
-            >
-              <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-                <G>
-                  {paths.map((p) => (
-                    <CountryPath
-                      key={p.id}
-                      id={p.id}
-                      name={p.name}
-                      d={p.d}
-                      fill={getFill(p.id)}
-                      onPressId={onCountryPress}
-                    />
-                  ))}
-                </G>
-              </Svg>
+            <Animated.View style={styles.container}>
+              <PinchGestureHandler
+                ref={pinchRef}
+                simultaneousHandlers={panRef}
+                onGestureEvent={onPinchEvent}
+                onHandlerStateChange={onPinchStateChange}
+              >
+                <Animated.View
+                  style={[
+                    styles.container,
+                    {
+                      transform: [
+                        { translateX: translateXCombined },
+                        { translateY: translateYCombined },
+                        { scale: scaleCombined },
+                      ],
+                    },
+                  ]}
+                >
+                  <Svg
+                    width={width}
+                    height={height}
+                    viewBox={`0 0 ${width} ${height}`}
+                    pointerEvents="none"
+                  >
+                    <G>
+                      {paths.map((p) => (
+                        <CountryPath
+                          key={p.key}
+                          d={p.d}
+                          fill={getFill(p.id)}
+                        />
+                      ))}
+                    </G>
+                  </Svg>
+                </Animated.View>
+              </PinchGestureHandler>
             </Animated.View>
-          </PinchGestureHandler>
+          </PanGestureHandler>
         </Animated.View>
-      </PanGestureHandler>
+      </TapGestureHandler>
 
       <TouchableOpacity style={styles.resetBtn} onPress={resetZoom}>
         <Text style={styles.resetTxt}>⊙</Text>
