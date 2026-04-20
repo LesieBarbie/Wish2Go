@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,29 +6,31 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useTravel } from '../context/TravelContext';
 import { TOTAL_COUNTRIES, CONTINENT_COUNTS, getCountryById } from '../data/countries';
 import { getUnlockedAchievements, ACHIEVEMENTS } from '../data/achievements';
 import UserProfile from '../models/UserProfile';
+import { setOnline, getOnline } from '../api/client';
 
 export default function ProfileScreen() {
-  const { visited, dream, resetAll } = useTravel();
+  const { visited, dream, resetAll, syncPending } = useTravel();
   const unlocked = getUnlockedAchievements(visited, dream);
 
-  // Створюємо екземпляр моделі UserProfile на льоту з актуальних даних.
-  // Поля моделі (ім'я, кількість країн, відсоток, ранг) напряму
-  // використовуються у UI нижче.
+  const [syncing, setSyncing] = useState(false);
+  const [online, setOnlineState] = useState(getOnline());
+
   const profile = useMemo(() => {
     const percent = (visited.length / TOTAL_COUNTRIES) * 100;
     return new UserProfile(
-      'Мандрівник',       // name
-      visited.length,     // visitedCount
-      dream.length,       // dreamCount
-      parseFloat(percent.toFixed(1)),  // worldPercent
-      unlocked.length,    // achievementsUnlocked
-      true,               // notificationsEnabled
-      new Date()          // joinedAt (у реальному застосунку - береться з першого запуску)
+      'Мандрівник',
+      visited.length,
+      dream.length,
+      parseFloat(percent.toFixed(1)),
+      unlocked.length,
+      true,
+      new Date()
     );
   }, [visited.length, dream.length, unlocked.length]);
 
@@ -41,6 +43,27 @@ export default function ProfileScreen() {
         { text: 'Видалити все', style: 'destructive', onPress: resetAll },
       ]
     );
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await syncPending();
+      Alert.alert(
+        'Синхронізація завершена',
+        `Успішно: ${res.synced}\nПомилки: ${res.failed}`
+      );
+    } catch (e) {
+      Alert.alert('Помилка', e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const toggleOnline = () => {
+    const newValue = !online;
+    setOnline(newValue);
+    setOnlineState(newValue);
   };
 
   const perContinent = {};
@@ -74,6 +97,37 @@ export default function ProfileScreen() {
           label="Сповіщення"
           value={profile.notificationsEnabled ? 'Увімкнено' : 'Вимкнено'}
         />
+      </View>
+
+      {/* Блок синхронізації (offline-first) */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>☁️ Синхронізація</Text>
+        <Row
+          label="Стан мережі"
+          value={online ? '🟢 Онлайн' : '🔴 Офлайн'}
+        />
+        <TouchableOpacity style={styles.secondaryBtn} onPress={toggleOnline}>
+          <Text style={styles.secondaryTxt}>
+            {online ? 'Вимкнути мережу (демо)' : 'Увімкнути мережу (демо)'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.primaryBtn, syncing && styles.primaryBtnDisabled]}
+          onPress={handleSync}
+          disabled={syncing}
+        >
+          {syncing ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.primaryTxt}>Синхронізувати зараз</Text>
+          )}
+        </TouchableOpacity>
+        <Text style={styles.hint}>
+          Застосунок працює offline-first: усі зміни зберігаються локально одразу,
+          а синхронізуються з сервером у фоні. Якщо мережі немає — записи з
+          позначкою syncStatus='pending' чекають, поки з'явиться мережа.
+        </Text>
       </View>
 
       <View style={styles.card}>
@@ -151,6 +205,20 @@ const styles = StyleSheet.create({
   rowValue: { color: '#111', fontWeight: '600', fontSize: 14 },
   empty: { color: '#999', fontStyle: 'italic' },
   listItem: { fontSize: 14, paddingVertical: 3, color: '#333' },
+  hint: { fontSize: 12, color: '#777', marginTop: 10, lineHeight: 17 },
+  primaryBtn: {
+    marginTop: 10, padding: 12,
+    backgroundColor: '#2e7d32',
+    borderRadius: 10, alignItems: 'center',
+  },
+  primaryBtnDisabled: { opacity: 0.6 },
+  primaryTxt: { color: '#fff', fontWeight: '700' },
+  secondaryBtn: {
+    marginTop: 8, padding: 10,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 10, alignItems: 'center',
+  },
+  secondaryTxt: { color: '#333', fontWeight: '600' },
   resetBtn: {
     margin: 16, padding: 14,
     backgroundColor: '#ffebee',

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,38 +10,47 @@ import {
 import { useTravel } from '../context/TravelContext';
 import { COUNTRIES, COUNTRIES_WITH_REGIONS } from '../data/countries';
 import Country from '../models/Country';
+import CountryRepository from '../repositories/CountryRepository';
 
 /**
- * Екран СПИСКУ всіх країн (за вимогою лаби - екран, що
- * відображає колекцію об'єктів через FlatList).
- *
- * Тап на елемент списку відкриває екран деталі країни.
- * Є пошук та фільтри (Усі / Відвідані / Мрії).
+ * Екран СПИСКУ всіх країн (через FlatList).
+ * Дані беруться напряму з CountryRepository (offline-first).
+ * Для кожної країни показується syncStatus.
  */
 export default function CountriesListScreen({ navigation }) {
   const { visited, dream } = useTravel();
-  const [filter, setFilter] = useState('all'); // all | visited | dream
+  const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [repoData, setRepoData] = useState([]);
 
-  // Будуємо колекцію екземплярів моделі Country.
-  // Для кожної країни з бази визначаємо її поточний стан (visited / dream).
-  const countries = useMemo(() => {
-    return COUNTRIES.map((c) => {
-      const v = visited.find((x) => x.id === c.id);
-      const d = dream.find((x) => x.id === c.id);
-      return new Country(
-        c.id,
-        c.name,
-        c.continent,
-        !!v,
-        !!d,
-        v?.date ? new Date(v.date) : null,
-        v?.note || d?.note || ''
-      );
-    });
+  // Завантажуємо дані з репозиторію при кожному оновленні visited/dream
+  useEffect(() => {
+    const repo = new CountryRepository();
+    repo.getAll().then(setRepoData).catch(() => setRepoData([]));
   }, [visited, dream]);
 
-  // Фільтрація + пошук
+  // Будуємо колекцію екземплярів Country
+  const countries = useMemo(() => {
+    return COUNTRIES.map((c) => {
+      const fromRepo = repoData.find((r) => r.id === c.id);
+      if (fromRepo) {
+        // Використовуємо дані з репозиторію (містять syncStatus)
+        return new Country(
+          fromRepo.id,
+          c.name, // беремо свіжу назву з довідника
+          c.continent,
+          fromRepo.visited,
+          fromRepo.isDream,
+          fromRepo.dateVisited,
+          fromRepo.note,
+          fromRepo.syncStatus
+        );
+      }
+      // Країна без позначок - просто з довідника
+      return new Country(c.id, c.name, c.continent);
+    });
+  }, [repoData]);
+
   const filtered = useMemo(() => {
     let list = countries;
     if (filter === 'visited') list = list.filter((c) => c.visited);
@@ -52,7 +61,6 @@ export default function CountriesListScreen({ navigation }) {
         (c) => c.name.toLowerCase().includes(q) || c.continent.toLowerCase().includes(q)
       );
     }
-    // Сортуємо: відвідані → мрії → інші, в межах групи за алфавітом
     return list.sort((a, b) => {
       const aScore = a.visited ? 0 : a.isDream ? 1 : 2;
       const bScore = b.visited ? 0 : b.isDream ? 1 : 2;
@@ -62,20 +70,33 @@ export default function CountriesListScreen({ navigation }) {
   }, [countries, filter, search]);
 
   const openDetail = (country) => {
-    // Перехід на екран деталі (вимога навігації лаби)
     navigation.navigate('CountryDetail', {
       countryId: country.id,
       name: country.name,
     });
   };
 
-  // Рендер одного елемента списку. Поля беруться з екземпляру моделі Country.
+  // Візуальне відображення syncStatus
+  const renderSyncBadge = (country) => {
+    if (!country.visited && !country.isDream) return null;
+    const map = {
+      synced: { text: '✓', color: '#2e7d32' },
+      pending: { text: '⏳', color: '#ff9800' },
+      error: { text: '⚠', color: '#c62828' },
+    };
+    const s = map[country.syncStatus] || map.pending;
+    return <Text style={{ color: s.color, fontSize: 12, marginLeft: 6 }}>{s.text}</Text>;
+  };
+
   const renderItem = ({ item }) => {
     const hasRegions = !!COUNTRIES_WITH_REGIONS[item.id];
     return (
       <TouchableOpacity style={styles.item} onPress={() => openDetail(item)}>
         <View style={styles.itemLeft}>
-          <Text style={styles.itemName}>{item.name}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.itemName}>{item.name}</Text>
+            {renderSyncBadge(item)}
+          </View>
           <Text style={styles.itemContinent}>{item.continent}</Text>
           {item.dateVisited && (
             <Text style={styles.itemDate}>
@@ -189,6 +210,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   itemLeft: { flex: 1 },
+  nameRow: { flexDirection: 'row', alignItems: 'center' },
   itemName: { fontSize: 16, fontWeight: '600', color: '#111' },
   itemContinent: { fontSize: 13, color: '#666', marginTop: 2 },
   itemDate: { fontSize: 11, color: '#999', marginTop: 4 },
