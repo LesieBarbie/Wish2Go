@@ -1,3 +1,4 @@
+
 // Список країн з континентами та ISO-кодами.
 // ID збігається з ID з world-atlas (той самий, що ти використовував у веб-версії).
 
@@ -211,6 +212,7 @@ export const COUNTRIES = [
   { id: '548', name: 'Вануату', continent: 'Океанія' },
 ];
 
+
 /**
  * Країни з детальною картою регіонів.
  * - url: посилання на GeoJSON або TopoJSON
@@ -226,12 +228,14 @@ export const COUNTRIES_WITH_REGIONS = {
     center: [10, 51],
     scale: 2500,
   },
+
   '756': {
     name: 'Швейцарія',
-    url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/switzerland-cantons.geojson',
+    url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/switzerland.geojson',
     center: [8.3, 46.8],
-    scale: 7500,
+    scale: 6000,
   },
+
   '840': {
     name: 'США',
     url: 'https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json',
@@ -239,44 +243,84 @@ export const COUNTRIES_WITH_REGIONS = {
     center: [-98, 39],
     scale: 900,
   },
+
+  // 🔥 УКРАЇНА (ПРАВИЛЬНИЙ GEOJSON З ОБЛАСТЯМИ)
   '804': {
     name: 'Україна',
-    // geoBoundaries: надійне стандартизоване джерело, спрощена геометрія
-    url: 'https://www.geoboundaries.org/api/current/gbOpen/UKR/ADM1/',
-    // API повертає JSON з посиланням на simplified geojson - обробляємо в коді
-    isGeoboundaries: true,
+    url: 'https://raw.githubusercontent.com/datasets/geo-admin1/master/data/UKR.geojson',
     center: [31, 49],
-    scale: 2200,
+    scale: 2000,
   },
+
   '250': {
     name: 'Франція',
     url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/france-regions.geojson',
     center: [2.5, 46.5],
     scale: 2000,
   },
+
   '380': {
     name: 'Італія',
     url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/italy-regions.geojson',
     center: [12.5, 42],
     scale: 2200,
   },
+
   '724': {
     name: 'Іспанія',
     url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/spain-provinces.geojson',
     center: [-3.5, 40],
     scale: 2000,
   },
+
   '826': {
     name: 'Велика Британія',
-    url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/uk-counties.geojson',
+    url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/uk.geojson',
     center: [-2.5, 54],
     scale: 2000,
   },
+
   '616': {
     name: 'Польща',
     url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/poland-provinces.geojson',
     center: [19.5, 52],
     scale: 2800,
+  },
+
+  '124': {
+    name: 'Канада',
+    url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/canada.geojson',
+    center: [-95, 62],
+    scale: 600,
+  },
+
+  '076': {
+    name: 'Бразилія',
+    url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/brazil-states.geojson',
+    center: [-52, -10],
+    scale: 900,
+  },
+
+  '392': {
+    name: 'Японія',
+    url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/japan.geojson',
+    center: [138, 37],
+    scale: 2500,
+  },
+
+  '036': {
+    name: 'Австралія',
+    url: 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/australia.geojson',
+    center: [134, -25],
+    scale: 900,
+  },
+
+  // 🔥 НІДЕРЛАНДИ (СТАБІЛЬНИЙ ФАЙЛ)
+  '528': {
+    name: 'Нідерланди',
+    url: 'https://raw.githubusercontent.com/datasets/geo-admin1/master/data/NLD.geojson',
+    center: [5.5, 52.2],
+    scale: 7000,
   },
 };
 

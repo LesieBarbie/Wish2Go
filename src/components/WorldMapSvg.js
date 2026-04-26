@@ -19,6 +19,8 @@ import {
   State,
 } from 'react-native-gesture-handler';
 
+
+
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 
 const { width: SCREEN_W } = Dimensions.get('window');
