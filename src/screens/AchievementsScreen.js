@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useTravel } from '../context/TravelContext';
@@ -10,6 +11,7 @@ import Achievement from '../models/Achievement';
  * беруться з екземплярів моделі).
  */
 export default function AchievementsScreen() {
+  const insets = useSafeAreaInsets();
   const { visited, dream } = useTravel();
 
   // Створюємо колекцію екземплярів моделі Achievement з поточним станом
@@ -34,7 +36,7 @@ export default function AchievementsScreen() {
   const unlockedCount = items.filter((i) => i.unlocked).length;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView style={[styles.container, { paddingTop: insets.top }]} contentContainerStyle={{ paddingBottom: 40 }}>
       <View style={styles.header}>
         <Text style={styles.title}>🏆 Досягнення</Text>
         <Text style={styles.subtitle}>

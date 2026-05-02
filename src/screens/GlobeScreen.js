@@ -1,8 +1,10 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useRef, useEffect, useState } from 'react';
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 export default function GlobeScreen({ visited, dream, onCountryPress }) {
+  const insets = useSafeAreaInsets();
   const webRef = useRef();
   const [webReady, setWebReady] = useState(false);
 
@@ -205,7 +207,7 @@ world.controls().autoRotate = false;
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <WebView
         ref={webRef}
         originWhitelist={['*']}
@@ -239,4 +241,3 @@ const styles = StyleSheet.create({
   },
   loadTxt: { marginTop: 12, color: '#666' },
 });
-

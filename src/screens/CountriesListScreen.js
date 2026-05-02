@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -18,6 +19,7 @@ import CountryRepository from '../repositories/CountryRepository';
  * Для кожної країни показується syncStatus.
  */
 export default function CountriesListScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const { visited, dream } = useTravel();
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -43,6 +45,7 @@ export default function CountriesListScreen({ navigation }) {
           fromRepo.isDream,
           fromRepo.dateVisited,
           fromRepo.note,
+          fromRepo.photos || [],
           fromRepo.syncStatus
         );
       }
@@ -115,7 +118,7 @@ export default function CountriesListScreen({ navigation }) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <Text style={styles.title}>📋 Список країн</Text>
 
       <TextInput

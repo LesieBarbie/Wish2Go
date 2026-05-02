@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import React, { useMemo, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,10 +14,11 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { useTravel } from '../context/TravelContext';
 import { Modal } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import { File, Directory, Paths } from 'expo-file-system/next';
 
 
 export default function RegionDetailScreen({ route }) {
+  const insets = useSafeAreaInsets();
   const { countryId, regionName } = route.params;
   const [selectedPhoto, setSelectedPhoto] = useState(null);
 
@@ -47,6 +49,20 @@ export default function RegionDetailScreen({ route }) {
   const photos = Array.isArray(region.photos) ? region.photos : [];
 
   // =========================
+  // 📝 NOTE WITH DEBOUNCE
+  // =========================
+  const [localNote, setLocalNote] = useState(region.note || '');
+  const debounceTimer = useRef(null);
+
+  const handleNoteChange = useCallback((text) => {
+    setLocalNote(text);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      updateRegionNote(countryId, regionName, text);
+    }, 600);
+  }, [countryId, regionName, updateRegionNote]);
+
+  // =========================
   // 📸 PICK IMAGE
   // =========================
   const pickImage = async () => {
@@ -60,33 +76,23 @@ export default function RegionDetailScreen({ route }) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 0.7,
     });
 
     if (!result.canceled && result.assets?.length > 0) {
       const originalUri = result.assets[0].uri;
 
-      const newPath =
-        FileSystem.documentDirectory +
-        'photos/' +
-        Date.now() +
-        '.jpg';
+      const dir = new Directory(Paths.document, 'photos');
+      if (!dir.exists) {
+        dir.create();
+      }
 
-      const dir = FileSystem.documentDirectory + 'photos/';
+      const dest = new File(dir, Date.now() + '.jpg');
+      const src = new File(originalUri);
+      src.copy(dest);
 
-const dirInfo = await FileSystem.getInfoAsync(dir);
-
-if (!dirInfo.exists) {
-  await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-}
-
-      await FileSystem.copyAsync({
-        from: originalUri,
-        to: newPath,
-      });
-
-      addRegionPhoto(countryId, regionName, newPath);
+      addRegionPhoto(countryId, regionName, dest.uri);
     }
   } catch (e) {
     console.log(e);
@@ -111,7 +117,7 @@ if (!dirInfo.exists) {
   <>
     <ScrollView
       style={styles.container}
-      contentContainerStyle={{ paddingBottom: 40 }}
+      contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 40 }}
     >
       {/* HEADER */}
       <Text style={styles.title}>{region.name}</Text>
@@ -124,10 +130,8 @@ if (!dirInfo.exists) {
           style={styles.input}
           placeholder="Напиши свої враження..."
           multiline
-          value={region.note || ''}
-          onChangeText={(text) =>
-            updateRegionNote(countryId, regionName, text)
-          }
+          value={localNote}
+          onChangeText={handleNoteChange}
         />
       </View>
 

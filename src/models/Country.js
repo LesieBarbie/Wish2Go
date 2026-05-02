@@ -19,6 +19,7 @@ export default class Country {
    * @param {boolean} isDream - чи додана до списку мрій
    * @param {Date|null} dateVisited - дата відвідування (null якщо не відвідана)
    * @param {string} note - особиста нотатка користувача про країну
+   * @param {string[]} photos - масив URI фотографій
    * @param {string} syncStatus - статус синхронізації: 'pending' | 'synced' | 'error'
    */
   constructor(
@@ -29,6 +30,7 @@ export default class Country {
     isDream = false,
     dateVisited = null,
     note = '',
+    photos = [],
     syncStatus = 'pending'
   ) {
     this.id = id;                   // string
@@ -38,6 +40,7 @@ export default class Country {
     this.isDream = isDream;         // boolean
     this.dateVisited = dateVisited; // Date | null
     this.note = note;               // string
+    this.photos = Array.isArray(photos) ? photos : []; // string[]
     this.syncStatus = syncStatus;   // string ('pending' | 'synced' | 'error')
   }
 
@@ -53,6 +56,7 @@ export default class Country {
       obj.isDream ?? false,
       obj.dateVisited ? new Date(obj.dateVisited) : null,
       obj.note || '',
+      Array.isArray(obj.photos) ? obj.photos : [],
       obj.syncStatus || 'pending'
     );
   }
@@ -69,6 +73,7 @@ export default class Country {
       isDream: this.isDream,
       dateVisited: this.dateVisited ? this.dateVisited.toISOString() : null,
       note: this.note,
+      photos: this.photos || [],
       syncStatus: this.syncStatus,
     };
   }

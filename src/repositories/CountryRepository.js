@@ -37,7 +37,9 @@ export default class CountryRepository {
   /** Прочитати список усіх позначених країн (відвідані + мрії). */
   async getAll() {
     const raw = await this.storage.getList(this.collection);
-    return raw.map((obj) => Country.fromJSON(obj));
+    return (Array.isArray(raw) ? raw : [])
+      .filter(obj => obj && obj.id)
+      .map((obj) => Country.fromJSON(obj));
   }
 
   /** Прочитати одну країну за id. */
@@ -81,28 +83,37 @@ export default class CountryRepository {
    */
   async syncCountry(country) {
     try {
-      const response = country.visited
-        ? await this.api.postVisitedCountry(country)
-        : await this.api.putVisitedCountry(country.id, {
-            date: country.dateVisited?.toISOString?.(),
-            note: country.note,
-          });
+      // Синхронізуємо тільки visited або dream записи
+      if (!country.visited && !country.isDream) return;
+
+      // Нормалізуємо перед відправкою — захист від undefined полів
+      const safeCountry = {
+        ...country,
+        note: country.note || '',
+        photos: Array.isArray(country.photos) ? country.photos : [],
+        dateVisited: country.dateVisited instanceof Date ? country.dateVisited : null,
+      };
+      const response = await this.api.postVisitedCountry(safeCountry);
 
       // Сервер підтвердив → оновлюємо syncStatus локально
       const updated = await this.getById(country.id);
       if (updated) {
         updated.markSynced();
         await this.storage.saveItem(this.collection, updated.toJSON());
+        // Повідомляємо UI що синхронізація завершена
+        this.onSyncComplete?.();
       }
       return response;
     } catch (e) {
-      // Помилка → позначаємо як error, запис залишається локально
-      const failed = await this.getById(country.id);
-      if (failed) {
-        failed.markError();
-        await this.storage.saveItem(this.collection, failed.toJSON());
-      }
-      throw e;
+      // Помилка мережі → позначаємо як error, спробуємо пізніше
+      try {
+        const failed = await this.getById(country.id);
+        if (failed) {
+          failed.markError();
+          await this.storage.saveItem(this.collection, failed.toJSON());
+        }
+      } catch (_) {}
+      // не кидаємо далі — фонова помилка не повинна ламати UI
     }
   }
 
@@ -150,7 +161,8 @@ export default class CountryRepository {
    */
   async syncPending() {
     const all = await this.getAll();
-    const pending = all.filter((c) => c.needsSync());
+    if (!Array.isArray(all)) return { synced: 0, failed: 0 };
+    const pending = all.filter((c) => c && typeof c.needsSync === 'function' && c.needsSync());
 
     const results = { synced: 0, failed: 0 };
     for (const c of pending) {

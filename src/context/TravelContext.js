@@ -10,6 +10,9 @@ const TravelContext = createContext(null);
 const countryRepo = new CountryRepository();
 const achievementRepo = new AchievementRepository();
 
+// Колбек викликається після фонової синхронізації — оновлює UI
+countryRepo.onSyncComplete = null;
+
 export function TravelProvider({ children }) {
   const [visited, setVisited] = useState([]);
   const [dream, setDream] = useState([]);
@@ -20,45 +23,52 @@ export function TravelProvider({ children }) {
   const [pendingToast, setPendingToast] = useState(null);
   const toastQueue = useRef([]);
 
-  // =========================
-  // 🔥 LOAD
-  // =========================
   useEffect(() => {
     (async () => {
       await migrateLegacyData();
-
       const allCountries = await countryRepo.getAll();
-
       setVisited(allCountries.filter(c => c.visited).map(toLegacy));
       setDream(allCountries.filter(c => c.isDream).map(toLegacy));
-
       const rawRegions = await loadData(KEYS.REGIONS, {});
       setRegions(normalizeRegions(rawRegions));
-
       const n = await loadMeta(META_KEYS.NOTIFIED_ACHIEVEMENTS, []);
       setNotifiedAchievements(n);
-
       setLoaded(true);
     })();
   }, []);
 
-  useEffect(() => {
-    if (loaded) saveData(KEYS.REGIONS, regions);
-  }, [regions, loaded]);
+  useEffect(() => { if (loaded) saveData(KEYS.REGIONS, regions); }, [regions, loaded]);
+  useEffect(() => { if (loaded) saveMeta(META_KEYS.NOTIFIED_ACHIEVEMENTS, notifiedAchievements); }, [notifiedAchievements, loaded]);
 
-  useEffect(() => {
-    if (loaded) saveMeta(META_KEYS.NOTIFIED_ACHIEVEMENTS, notifiedAchievements);
-  }, [notifiedAchievements, loaded]);
+  const showNextToast = () => {
+    if (toastQueue.current.length > 0) setPendingToast(toastQueue.current.shift());
+  };
 
-  // =========================
-  // 🔥 REGIONS
-  // =========================
+  const hideToast = () => {
+    setPendingToast(null);
+    setTimeout(showNextToast, 300);
+  };
+
+  const queueToast = (achievement) => {
+    toastQueue.current.push(achievement);
+    if (!pendingToast) showNextToast();
+  };
+
+  const checkAchievements = (newVisited) => {
+    for (const ach of ACHIEVEMENTS) {
+      if (notifiedAchievements.includes(ach.id)) continue;
+      if (ach.check(newVisited)) {
+        setNotifiedAchievements(prev => [...prev, ach.id]);
+        sendAchievementNotification(ach).catch(() => {});
+        queueToast(ach);
+      }
+    }
+  };
 
   const toggleRegion = (countryId, regionName) => {
     setRegions(prev => {
       const current = prev[countryId] || [];
       const exists = current.find(r => r.name === regionName);
-
       return {
         ...prev,
         [countryId]: exists
@@ -81,9 +91,7 @@ export function TravelProvider({ children }) {
     setRegions(prev => ({
       ...prev,
       [countryId]: (prev[countryId] || []).map(r =>
-        r.name === regionName
-          ? { ...r, photos: [...(r.photos || []), uri] }
-          : r
+        r.name === regionName ? { ...r, photos: [...(r.photos || []), uri] } : r
       ),
     }));
   };
@@ -92,151 +100,78 @@ export function TravelProvider({ children }) {
     setRegions(prev => ({
       ...prev,
       [countryId]: (prev[countryId] || []).map(r =>
-        r.name === regionName
-          ? { ...r, photos: r.photos.filter(p => p !== uri) }
-          : r
+        r.name === regionName ? { ...r, photos: r.photos.filter(p => p !== uri) } : r
       ),
     }));
   };
 
-  // =========================
-  // 🔥 COUNTRIES
-  // =========================
-
   const updateStateFromRepo = async () => {
+    // Підписуємось на фонову синхронізацію
+    countryRepo.onSyncComplete = updateStateFromRepo;
     const all = await countryRepo.getAll();
-    setVisited(all.filter(c => c.visited).map(toLegacy));
+    const newVisited = all.filter(c => c.visited).map(toLegacy);
+    setVisited(newVisited);
     setDream(all.filter(c => c.isDream).map(toLegacy));
+    checkAchievements(newVisited);
   };
 
   const toggleVisited = async (id, name) => {
     const existing = await countryRepo.getById(id);
-
-    if (existing?.visited) {
-      await countryRepo.delete(id);
-      return updateStateFromRepo();
-    }
-
-    await countryRepo.save({
-      id,
-      name,
-      continent: existing?.continent || '',
-      visited: true,
-      isDream: false,
-      dateVisited: new Date(),
-      note: '',
-      photos: [],
-      syncStatus: 'pending',
-    });
-
-    updateStateFromRepo();
+    if (existing?.visited) { await countryRepo.delete(id); await updateStateFromRepo(); return; }
+    await countryRepo.save({ id, name, continent: existing?.continent || '', visited: true, isDream: false, dateVisited: new Date(), note: '', photos: [], syncStatus: 'pending' });
+    await updateStateFromRepo();
   };
 
   const toggleDream = async (id, name) => {
     const existing = await countryRepo.getById(id);
-
-    if (existing?.isDream) {
-      await countryRepo.delete(id);
-      return updateStateFromRepo();
-    }
-
-    await countryRepo.save({
-      id,
-      name,
-      continent: existing?.continent || '',
-      visited: false,
-      isDream: true,
-      dateVisited: null,
-      note: '',
-      photos: [],
-      syncStatus: 'pending',
-    });
-
-    updateStateFromRepo();
+    if (existing?.isDream) { await countryRepo.delete(id); await updateStateFromRepo(); return; }
+    await countryRepo.save({ id, name, continent: existing?.continent || '', visited: false, isDream: true, dateVisited: null, note: '', photos: [], syncStatus: 'pending' });
+    await updateStateFromRepo();
   };
 
   const updateNote = async (listType, id, note) => {
     const existing = await countryRepo.getById(id);
     if (!existing) return;
-
-    await countryRepo.save({
-      ...existing,
-      note,
-      syncStatus: 'pending',
-    });
-
-    updateStateFromRepo();
+    await countryRepo.save({ ...existing, note, syncStatus: 'pending' });
+    await updateStateFromRepo();
   };
-
-  // =========================
-  // 🔥 ФОТО КРАЇНИ (FIXED)
-  // =========================
 
   const addCountryPhoto = async (id, uri) => {
     let existing = await countryRepo.getById(id);
-
-    // 🔥 якщо країни нема — створюємо її
     if (!existing) {
-      existing = {
-        id,
-        name: 'Unknown',
-        continent: '',
-        visited: true,
-        isDream: false,
-        dateVisited: new Date(),
-        note: '',
-        photos: [],
-        syncStatus: 'pending',
-      };
-
+      existing = { id, name: 'Unknown', continent: '', visited: true, isDream: false, dateVisited: new Date(), note: '', photos: [], syncStatus: 'pending' };
       await countryRepo.save(existing);
     }
-
-    await countryRepo.save({
-      ...existing,
-      photos: [...(existing.photos || []), uri],
-      syncStatus: 'pending',
-    });
-
-    updateStateFromRepo();
+    await countryRepo.save({ ...existing, photos: [...(existing.photos || []), uri], syncStatus: 'pending' });
+    await updateStateFromRepo();
   };
 
   const removeCountryPhoto = async (id, uri) => {
     const existing = await countryRepo.getById(id);
     if (!existing) return;
-
-    await countryRepo.save({
-      ...existing,
-      photos: (existing.photos || []).filter(p => p !== uri),
-      syncStatus: 'pending',
-    });
-
-    updateStateFromRepo();
+    await countryRepo.save({ ...existing, photos: (existing.photos || []).filter(p => p !== uri), syncStatus: 'pending' });
+    await updateStateFromRepo();
   };
 
-  // =========================
+  const syncPending = async () => {
+    try {
+      const result = await countryRepo.syncPending();
+      await updateStateFromRepo(); // оновлюємо UI після синхронізації
+      return result;
+    } catch (e) {
+      console.warn('syncPending error:', e.message);
+    }
+  };
 
   return (
-    <TravelContext.Provider
-      value={{
-        visited,
-        dream,
-        regions,
-        loaded,
-
-        toggleVisited,
-        toggleDream,
-        updateNote,
-
-        toggleRegion,
-        updateRegionNote,
-        addRegionPhoto,
-        removeRegionPhoto,
-
-        addCountryPhoto,
-        removeCountryPhoto,
-      }}
-    >
+    <TravelContext.Provider value={{
+      visited, dream, regions, loaded,
+      pendingToast, hideToast,
+      toggleVisited, toggleDream, updateNote,
+      toggleRegion, updateRegionNote, addRegionPhoto, removeRegionPhoto,
+      addCountryPhoto, removeCountryPhoto,
+      syncPending,
+    }}>
       {children}
     </TravelContext.Provider>
   );
@@ -248,17 +183,13 @@ export function useTravel() {
   return ctx;
 }
 
-// =========================
-
 function toLegacy(country) {
   return {
     id: country.id,
     name: country.name,
     note: country.note || '',
     photos: country.photos || [],
-    ...(country.visited && country.dateVisited
-      ? { date: country.dateVisited.toISOString() }
-      : {}),
+    ...(country.visited && country.dateVisited ? { date: country.dateVisited.toISOString() } : {}),
   };
 }
 
@@ -278,36 +209,13 @@ async function migrateLegacyData() {
   try {
     const existing = await countryRepo.getAll();
     if (existing.length > 0) return;
-
     const oldVisited = await loadData(KEYS.VISITED, []);
     const oldDream = await loadData(KEYS.DREAM, []);
-
     for (const v of oldVisited) {
-      await countryRepo.save({
-        id: v.id,
-        name: v.name,
-        continent: '',
-        visited: true,
-        isDream: false,
-        dateVisited: new Date(),
-        note: v.note || '',
-        photos: [],
-        syncStatus: 'synced',
-      });
+      await countryRepo.save({ id: v.id, name: v.name, continent: '', visited: true, isDream: false, dateVisited: new Date(), note: v.note || '', photos: [], syncStatus: 'synced' });
     }
-
     for (const d of oldDream) {
-      await countryRepo.save({
-        id: d.id,
-        name: d.name,
-        continent: '',
-        visited: false,
-        isDream: true,
-        dateVisited: null,
-        note: d.note || '',
-        photos: [],
-        syncStatus: 'synced',
-      });
+      await countryRepo.save({ id: d.id, name: d.name, continent: '', visited: false, isDream: true, dateVisited: null, note: d.note || '', photos: [], syncStatus: 'synced' });
     }
   } catch (e) {
     console.warn('Migration failed:', e.message);

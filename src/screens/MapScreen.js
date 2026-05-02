@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import WorldMapSvg from '../components/WorldMapSvg';
 import ProgressBar from '../components/ProgressBar';
@@ -100,14 +100,14 @@ export default function MapScreen({ navigation }) {
           style={[styles.viewBtn, viewMode === 'map' && styles.viewBtnActive]}
           onPress={() => setViewMode('map')}
         >
-          <Text style={styles.viewTxt}>🗺️ Карта</Text>
+          <Text style={[styles.viewTxt, viewMode === 'map' && styles.viewTxtActive]}>🗺️ Карта</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.viewBtn, viewMode === 'globe' && styles.viewBtnActive]}
           onPress={() => setViewMode('globe')}
         >
-          <Text style={styles.viewTxt}>🌍 Глобус</Text>
+          <Text style={[styles.viewTxt, viewMode === 'globe' && styles.viewTxtActive]}>🌍 Глобус</Text>
         </TouchableOpacity>
       </View>
 
@@ -205,6 +205,7 @@ const styles = StyleSheet.create({
   viewBtnActive: { backgroundColor: '#333' },
 
   viewTxt: { color: '#000', fontWeight: '600' },
+  viewTxtActive: { color: '#fff' },
 
   modeRow: {
     flexDirection: 'row',

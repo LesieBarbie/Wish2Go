@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import React, { useMemo, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +13,7 @@ import {
 } from 'react-native';
 
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import { File, Directory, Paths } from 'expo-file-system/next';
 
 import CountryRegionMap from '../components/CountryRegionMap';
 import { useTravel } from '../context/TravelContext';
@@ -20,6 +21,7 @@ import { COUNTRIES_WITH_REGIONS, getCountryById } from '../data/countries';
 import Country from '../models/Country';
 
 export default function CountryDetailScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
   const { countryId, name } = route.params;
 
   const config = COUNTRIES_WITH_REGIONS[countryId];
@@ -64,6 +66,20 @@ export default function CountryDetailScreen({ route, navigation }) {
   const photos = Array.isArray(country.photos) ? country.photos : [];
 
   // =========================
+  // 📝 NOTE WITH DEBOUNCE
+  // =========================
+  const [localNote, setLocalNote] = useState(country.note || '');
+  const debounceTimer = useRef(null);
+
+  const handleNoteChange = useCallback((text) => {
+    setLocalNote(text);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      updateNote(country.visited ? 'visited' : 'dream', countryId, text);
+    }, 600);
+  }, [country.visited, countryId, updateNote]);
+
+  // =========================
   // 📸 PICK IMAGE
   // =========================
 const pickImage = async () => {
@@ -82,33 +98,23 @@ const pickImage = async () => {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 0.7,
     });
 
     if (!result.canceled && result.assets?.length > 0) {
       const originalUri = result.assets[0].uri;
 
-      const newPath =
-        FileSystem.documentDirectory +
-        'photos/' +
-        Date.now() +
-        '.jpg';
+      const dir = new Directory(Paths.document, 'photos');
+      if (!dir.exists) {
+        dir.create();
+      }
 
-      const dir = FileSystem.documentDirectory + 'photos/';
+      const dest = new File(dir, Date.now() + '.jpg');
+      const src = new File(originalUri);
+      src.copy(dest);
 
-const dirInfo = await FileSystem.getInfoAsync(dir);
-
-if (!dirInfo.exists) {
-  await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-}
-
-      await FileSystem.copyAsync({
-        from: originalUri,
-        to: newPath,
-      });
-
-      addCountryPhoto(countryId, newPath);
+      addCountryPhoto(countryId, dest.uri);
     }
   } catch (e) {
     console.log(e);
@@ -135,7 +141,7 @@ if (!dirInfo.exists) {
     <>
       <ScrollView
         style={styles.container}
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 40 }}
       >
         {/* HEADER */}
         <View style={styles.headerCard}>
@@ -215,14 +221,8 @@ if (!dirInfo.exists) {
               style={styles.noteInput}
               placeholder="Твої враження або плани..."
               multiline
-              value={country.note || ''}
-              onChangeText={(text) =>
-                updateNote(
-                  country.visited ? 'visited' : 'dream',
-                  countryId,
-                  text
-                )
-              }
+              value={localNote}
+              onChangeText={handleNoteChange}
             />
           </View>
         )}

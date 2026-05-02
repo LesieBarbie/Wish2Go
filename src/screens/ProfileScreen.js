@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useMemo, useState } from 'react';
 import {
   View,
@@ -15,6 +16,7 @@ import UserProfile from '../models/UserProfile';
 import { setOnline, getOnline } from '../api/client';
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const { visited, dream, resetAll, syncPending } = useTravel();
   const unlocked = getUnlockedAchievements(visited, dream);
 
@@ -73,7 +75,7 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView style={[styles.container, { paddingTop: insets.top }]} contentContainerStyle={{ paddingBottom: 40 }}>
       <View style={styles.header}>
         <View style={styles.avatar}>
           <Text style={styles.avatarTxt}>🧭</Text>
